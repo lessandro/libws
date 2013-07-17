@@ -1,0 +1,8 @@
+Reply parsing websocket (rfc6455) server library
+
+Goals:
+
+- network-agnostic library
+- no dependencies
+- C99
+- BSD 2-clause license
