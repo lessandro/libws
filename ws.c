@@ -126,7 +126,7 @@ int parse_http_get(struct ws_parser *parser)
     return 0;
 }
 
-// reads a line into the buffer and then call wait_func
+// read a line into the buffer and then call parse_fn
 int read_line(struct ws_parser *parser, const char *data, size_t len)
 {
     // check if \n is in data
@@ -143,7 +143,7 @@ int read_line(struct ws_parser *parser, const char *data, size_t len)
         return len;
     }
     else {
-        // \n found, copy the line to the buffer and call wait_func
+        // \n found, copy the line to the buffer and call parse_fn
 
         // copy the \n char too
         pos++;
@@ -168,7 +168,7 @@ int read_line(struct ws_parser *parser, const char *data, size_t len)
     }
 }
 
-// reads n bytes into the buffer and then call wait_func
+// read n bytes into the buffer and then call parse_fn
 int read_bytes(struct ws_parser *parser, const char *data, size_t len)
 {
     if (len > parser->remaining)
@@ -187,7 +187,7 @@ int read_bytes(struct ws_parser *parser, const char *data, size_t len)
     return len;
 }
 
-// reads n bytes and process them in chucks as they come
+// read n bytes, process them in chucks as they become available
 int read_stream(struct ws_parser *parser, const char *data, size_t len)
 {
     if (len > parser->remaining)
@@ -205,7 +205,8 @@ int read_stream(struct ws_parser *parser, const char *data, size_t len)
     return len;
 }
 
-// returns the number of bytes consumed or -1 on error
+// read and parse a byte stream
+// return the number of bytes consumed or -1 on error
 int ws_read(struct ws_parser *parser, const char *data, size_t len)
 {
     return parser->read_fn(parser, data, len);
