@@ -29,64 +29,105 @@
 #include "ws.h"
 
 #define BUFFER_SIZE 2048
-#define LF 0
 
-static int concat(struct ws_stream *stream, const char *data, size_t len)
+int read_bytes(struct ws_parser *parser, const char *data, size_t len);
+
+static int buffer_concat(struct ws_parser *parser, const char *data, size_t len)
 {
-    int remaining = BUFFER_SIZE - stream->buffer_len;
+    int remaining = BUFFER_SIZE - parser->buffer_len;
 
     if (len > remaining)
-        return 0;
+        return -1;
 
-    memcpy(stream->buffer + stream->buffer_len, data, len);
-    stream->buffer_len += len;
+    memcpy(parser->buffer + parser->buffer_len, data, len);
+    parser->buffer_len += len;
 
-    return 1;
+    return 0;
 }
 
-void parse_frame_mask(struct ws_stream *stream)
+int parse_frame_mask(struct ws_parser *parser)
 {
-
+    return -1;
 }
 
-void parse_frame_length(struct ws_stream *stream)
+int parse_frame_length(struct ws_parser *parser)
 {
-
+    return -1;
 }
 
-void parse_frame_header(struct ws_stream *stream)
+int parse_frame_header(struct ws_parser *parser)
 {
     printf("parse_frame_header: %02x %02x\n",
-        stream->buffer[0], stream->buffer[1]);
+        parser->buffer[0], parser->buffer[1]);
+
+    return -1;
 }
 
-void parse_http_header(struct ws_stream *stream)
+char *split_header(char *line)
 {
-    // stream->buffer = "Header-Name: header value\r\0"
+    char *value = strchr(line, ':');
+    if (value == NULL)
+        return NULL;
 
-    printf("parse_http_header: %s\n", stream->buffer);
+    // null-terminate key
+    *value++ = '\0';
 
-    if (!strcmp(stream->buffer, "\r")) {
+    // remove leading spaces
+    while (*value == ' ')
+        value++;
+
+    int len = strlen(value);
+    if (len > 0) {
+        // remove trailing \r
+        if (value[len-1] == '\r')
+            value[len-1] = '\0';
+    }
+
+    return value;
+}
+
+int parse_http_header(struct ws_parser *parser)
+{
+    // parser->buffer = "Header-Name: header value\r\0"
+
+    printf("parse_http_header: %s\n", parser->buffer);
+
+    if (!strcmp(parser->buffer, "\r")) {
         // end of header
 
         // send reply
 
-        stream->wait_for = 2;
-        stream->wait_func = parse_frame_header;
+        parser->remaining = 2;
+        parser->parse_fn = parse_frame_header;
+        parser->read_fn = read_bytes;
+        return 0;
     }
+
+    char *key = parser->buffer;
+    char *value = split_header(key);
+    if (value == NULL)
+        return -1;
+
+    if (!strcmp(key, "Sec-WebSocket-Key")) {
+        printf("found websocket key: %s\n", value);
+    }
+
+    return 0;
 }
 
-void parse_http_get(struct ws_stream *stream)
+int parse_http_get(struct ws_parser *parser)
 {
-    // stream->buffer = "GET /path HTTP/1.1\r\0"
+    // parser->buffer = "GET /path HTTP/1.1\r\0"
 
-    printf("parse_http_get: %s\n", stream->buffer);
+    printf("parse_http_get: %s\n", parser->buffer);
 
-    stream->wait_func = parse_http_header;
+    parser->parse_fn = parse_http_header;
+
+    return 0;
 }
 
 // reads a line into the buffer and then call wait_func
-int read_line(struct ws_stream *stream, const char *data, size_t len)
+int read_line(struct ws_parser *parser, const char *data, size_t len)
 {
     // check if \n is in data
     int pos = 0;
@@ -95,90 +136,95 @@ int read_line(struct ws_stream *stream, const char *data, size_t len)
             break;
 
     if (pos == len) {
-        // not in data, copy everything to the buffer and return
-        if (!concat(stream, data, pos))
+        // no \n found, copy everything to the buffer and return
+        if (buffer_concat(parser, data, pos) == -1)
             return -1;
 
         return len;
     }
     else {
-        // \n in data, copy the line to the buffer and call wait_func
+        // \n found, copy the line to the buffer and call wait_func
+
+        // copy the \n char too
         pos++;
 
-        if (!concat(stream, data, pos))
+        if (buffer_concat(parser, data, pos) == -1)
             return -1;
 
         // null-terminate the string, getting rid of the \n
-        stream->buffer[pos-1] = 0;
+        parser->buffer[parser->buffer_len - 1] = '\0';
 
-        stream->wait_func(stream);
-        stream->buffer_len = 0;
+        // remove trailing \r
+        if (parser->buffer_len > 1)
+            if (parser->buffer[parser->buffer_len - 2] == '\r')
+                parser->buffer[parser->buffer_len - 2] = '\0';
+
+        if (parser->parse_fn(parser) == -1)
+            return -1;
+
+        parser->buffer_len = 0;
 
         return pos;
     }
 }
 
-// reads wait_for bytes into the buffer and then call wait_func
-int read_bytes(struct ws_stream *stream, const char *data, size_t len)
+// reads n bytes into the buffer and then call wait_func
+int read_bytes(struct ws_parser *parser, const char *data, size_t len)
 {
-    int rest = stream->wait_for - stream->buffer_len;
+    if (len > parser->remaining)
+        len = parser->remaining;
+    parser->remaining -= len;
 
-    if (len < rest) {
-        concat(stream, data, len);
-        return len;
+    buffer_concat(parser, data, len);
+
+    if (parser->remaining == 0) {
+        if (parser->parse_fn(parser) == -1)
+            return -1;
+
+        parser->buffer_len = 0;
     }
-    else {
-        concat(stream, data, rest);
-        stream->wait_func(stream);
-        stream->buffer_len = 0;
-        return rest;
-    }
+
+    return len;
 }
 
-// reads wait_for bytes and process them in chucks as they come
-int read_stream(struct ws_stream *stream, const char *data, size_t len)
+// reads n bytes and process them in chucks as they come
+int read_stream(struct ws_parser *parser, const char *data, size_t len)
 {
-    int rest = -stream->wait_for;
-    if (len > rest)
-        len = rest;
+    if (len > parser->remaining)
+        len = parser->remaining;
+    parser->remaining -= len;
 
     // send data
-    stream->wait_for += len;
 
     // got everything, wait for next frame header
-    if (stream->wait_for == 0) {
-        stream->wait_for = 2;
-        stream->wait_func = parse_frame_header;
+    if (parser->remaining == 0) {
+        parser->remaining = 2;
+        parser->parse_fn = parse_frame_header;
     }
 
     return len;
 }
 
 // returns the number of bytes consumed or -1 on error
-int ws_read(struct ws_stream *stream, const char *data, size_t len)
+int ws_read(struct ws_parser *parser, const char *data, size_t len)
 {
-    if (stream->wait_for == LF)
-        return read_line(stream, data, len);
-    else if (stream->wait_for > 0)
-        return read_bytes(stream, data, len);
-    else
-        return read_stream(stream, data, len);
+    return parser->read_fn(parser, data, len);
 }
 
-struct ws_stream *ws_new()
+struct ws_parser *ws_new()
 {
-    struct ws_stream *stream = malloc(sizeof(struct ws_stream));
+    struct ws_parser *parser = malloc(sizeof(struct ws_parser));
 
-    stream->wait_for = LF;
-    stream->wait_func = parse_http_get;
-    stream->buffer = malloc(BUFFER_SIZE);
-    stream->buffer_len = 0;
+    parser->read_fn = read_line;
+    parser->parse_fn = parse_http_get;
+    parser->buffer = malloc(BUFFER_SIZE);
+    parser->buffer_len = 0;
 
-    return stream;
+    return parser;
 }
 
-void ws_free(struct ws_stream *stream)
+void ws_free(struct ws_parser *parser)
 {
-    free(stream->buffer);
-    free(stream);
+    free(parser->buffer);
+    free(parser);
 }

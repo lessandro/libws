@@ -28,19 +28,20 @@
 
 #include <stdlib.h>
 
-struct ws_stream {
-    int wait_for;
-    void (*wait_func)(struct ws_stream *);
+struct ws_parser {
+    int remaining;
+    int (*read_fn)(struct ws_parser *, const char *, size_t);
+    int (*parse_fn)(struct ws_parser *);
 
     // holds partial headers
     char *buffer;
     int buffer_len;
 };
 
-int ws_read(struct ws_stream *stream, const char *data, size_t len);
+int ws_read(struct ws_parser *parser, const char *data, size_t len);
 
-struct ws_stream *ws_new();
+struct ws_parser *ws_new();
 
-void ws_free(struct ws_stream *stream);
+void ws_free(struct ws_parser *parser);
 
 #endif
