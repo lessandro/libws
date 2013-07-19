@@ -76,13 +76,6 @@ char *split_header(char *line)
     while (*value == ' ')
         value++;
 
-    int len = strlen(value);
-    if (len > 0) {
-        // remove trailing \r
-        if (value[len-1] == '\r')
-            value[len-1] = '\0';
-    }
-
     return value;
 }
 
