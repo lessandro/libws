@@ -46,6 +46,9 @@ struct ws_parser {
     const char *data;
     size_t data_len;
     size_t data_offset;
+    unsigned long long frame_len;
+
+    char mask[4];
 
     int state;
 };

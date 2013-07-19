@@ -62,6 +62,10 @@ void read_cb(struct sev_stream *stream, const char *data, size_t len)
         if (parser->state == WS_DATA) {
             printf("got %ld bytes @ offset %ld\n",
                 parser->data_len, parser->data_offset);
+
+            for (int i=0; i<parser->data_len; i++)
+                printf("%c", parser->data[i] ^ parser->mask[i % 4]);
+            printf("\n");
         }
 
         data += ret;

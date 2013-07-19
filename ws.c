@@ -50,24 +50,68 @@ static int concat(struct ws_parser *parser, const char *data, size_t len)
 
 static int parse_frame_mask(struct ws_parser *parser)
 {
-    return -1;
+    parser->read_fn = read_stream;
+    parser->remaining = parser->frame_len;
+
+    for (int i=0; i<4; i++)
+        parser->mask[i] = parser->buffer[i];
+
+    return 0;
 }
 
 static int parse_frame_length(struct ws_parser *parser)
 {
-    return -1;
+    unsigned char *p = (unsigned char *)parser->buffer;
+
+    if (parser->frame_len == 126) {
+        parser->frame_len =
+            ((unsigned long long) p[0] << 8) |
+            ((unsigned long long) p[1] << 0);
+    } else {
+        parser->frame_len =
+            ((unsigned long long) p[0] << 56) |
+            ((unsigned long long) p[1] << 48) |
+            ((unsigned long long) p[2] << 40) |
+            ((unsigned long long) p[3] << 32) |
+            ((unsigned long long) p[4] << 24) |
+            ((unsigned long long) p[5] << 16) |
+            ((unsigned long long) p[6] << 8) |
+            ((unsigned long long) p[7] << 0);
+    }
+
+    parser->remaining = 4;
+    parser->parse_fn = parse_frame_mask;
+
+    return 0;
 }
 
 static int parse_frame_header(struct ws_parser *parser)
 {
-    printf("parse_frame_header: %02x %02x\n",
-        (unsigned char)parser->buffer[0], (unsigned char)parser->buffer[1]);
-
     parser->data = NULL;
     parser->data_len = 0;
     parser->data_offset = 0;
 
-    return -1;
+    int opcode = parser->buffer[0] & 0x0f;
+    if (opcode != 1 && opcode != 2)
+        return -1;
+
+    int len = parser->buffer[1] & 0x7f;
+    parser->frame_len = len;
+
+    int has_mask = !!(parser->buffer[1] & 0x80);
+
+    if (!has_mask)
+        return -1;
+
+    if (len < 126) {
+        parser->remaining = 4;
+        parser->parse_fn = parse_frame_mask;
+    } else {
+        parser->remaining = len == 126 ? 2 : 8;
+        parser->parse_fn = parse_frame_length;
+    }
+
+    return 0;
 }
 
 #define GUID "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -241,6 +285,7 @@ static int read_stream(struct ws_parser *parser, const char *data, size_t len)
     // got everything, wait for next frame header
     if (parser->remaining == 0) {
         parser->remaining = 2;
+        parser->read_fn = read_bytes;
         parser->parse_fn = parse_frame_header;
     }
 
