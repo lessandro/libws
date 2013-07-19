@@ -87,12 +87,6 @@ static void compute_challenge(const char *key, char *encoded)
     sha1_loop(&ctx, (unsigned char *)buf, strlen(buf));
     sha1_result(&ctx, (char *)result);
 
-    printf("%s ->", buf);
-    for (int i=0; i<20; i++) {
-        printf(" %02x", result[i]);
-    }
-    printf("\n");
-
     base64_encode(encoded, (unsigned char *)result, SHA1_RESULTLEN);
 }
 
