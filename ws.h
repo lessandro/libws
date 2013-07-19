@@ -28,6 +28,10 @@
 
 #include <stdlib.h>
 
+#define WS_NONE 0
+#define WS_HEADER 1
+#define WS_DATA 2
+
 struct ws_parser {
     int remaining;
     int (*read_fn)(struct ws_parser *, const char *, size_t);
@@ -36,7 +40,17 @@ struct ws_parser {
     // holds partial headers
     char *buffer;
     int buffer_len;
+
+    char *key;
+
+    const char *data;
+    size_t data_len;
+    size_t data_offset;
+
+    int state;
 };
+
+void ws_http_reply(struct ws_parser *parser);
 
 int ws_read(struct ws_parser *parser, const char *data, size_t len);
 

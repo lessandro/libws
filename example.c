@@ -42,11 +42,26 @@ void open_cb(struct sev_stream *stream)
 void read_cb(struct sev_stream *stream, const char *data, size_t len)
 {
     while (len > 0) {
-        int ret = ws_read(stream->data, data, len);
+        struct ws_parser *parser = stream->data;
+        int ret = ws_read(parser, data, len);
 
         if (ret == -1) {
             printf("error\n");
             return;
+        }
+
+        if (parser->state == WS_HEADER) {
+            // send http header
+
+            ws_http_reply(parser);
+
+            printf("sending %s\n", parser->buffer);
+            sev_send(stream, parser->buffer, strlen(parser->buffer));
+        }
+
+        if (parser->state == WS_DATA) {
+            printf("got %ld bytes @ offset %ld\n",
+                parser->data_len, parser->data_offset);
         }
 
         data += ret;

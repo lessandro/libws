@@ -27,12 +27,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ws.h"
+#include "sha1.h"
+#include "base64.h"
 
 #define BUFFER_SIZE 2048
 
-int read_bytes(struct ws_parser *parser, const char *data, size_t len);
+static int read_bytes(struct ws_parser *parser, const char *data, size_t len);
+static int read_stream(struct ws_parser *parser, const char *data, size_t len);
 
-static int buffer_concat(struct ws_parser *parser, const char *data, size_t len)
+static int concat(struct ws_parser *parser, const char *data, size_t len)
 {
     int remaining = BUFFER_SIZE - parser->buffer_len;
 
@@ -45,25 +48,75 @@ static int buffer_concat(struct ws_parser *parser, const char *data, size_t len)
     return 0;
 }
 
-int parse_frame_mask(struct ws_parser *parser)
+static int parse_frame_mask(struct ws_parser *parser)
 {
     return -1;
 }
 
-int parse_frame_length(struct ws_parser *parser)
+static int parse_frame_length(struct ws_parser *parser)
 {
     return -1;
 }
 
-int parse_frame_header(struct ws_parser *parser)
+static int parse_frame_header(struct ws_parser *parser)
 {
     printf("parse_frame_header: %02x %02x\n",
-        parser->buffer[0], parser->buffer[1]);
+        (unsigned char)parser->buffer[0], (unsigned char)parser->buffer[1]);
+
+    parser->data = NULL;
+    parser->data_len = 0;
+    parser->data_offset = 0;
 
     return -1;
 }
 
-char *split_header(char *line)
+#define GUID "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+#define GUID_LEN 36
+
+static void compute_challenge(const char *key, char *encoded)
+{
+    char buf[GUID_LEN + strlen(key) + 1];
+
+    buf[0] = '\0';
+    strcat(buf, key);
+    strcat(buf, GUID);
+
+    unsigned char result[SHA1_RESULTLEN];
+    struct sha1_ctxt ctx;
+    sha1_init(&ctx);
+    sha1_loop(&ctx, (unsigned char *)buf, strlen(buf));
+    sha1_result(&ctx, (char *)result);
+
+    printf("%s ->", buf);
+    for (int i=0; i<20; i++) {
+        printf(" %02x", result[i]);
+    }
+    printf("\n");
+
+    base64_encode(encoded, (unsigned char *)result, SHA1_RESULTLEN);
+}
+
+static const char *http_reply =
+    "HTTP/1.1 101 Switching Protocols\r\n"
+    "Upgrade: websocket\r\n"
+    "Connection: Upgrade\r\n"
+    "Sec-WebSocket-Accept: ";
+
+void ws_http_reply(struct ws_parser *parser)
+{
+    char encoded[base64_encode_len(SHA1_RESULTLEN)];
+
+    compute_challenge(parser->key, encoded);
+
+    strcpy(parser->buffer, http_reply);
+    strcat(parser->buffer, encoded);
+    strcat(parser->buffer, "\r\n\r\n");
+}
+
+// split an http header line ("key: value")
+// return a pointer to the value or NULL if ':' is not in the string
+// zero-length keys and values are allowed
+static char *split_header(char *line)
 {
     char *value = strchr(line, ':');
     if (value == NULL)
@@ -79,17 +132,16 @@ char *split_header(char *line)
     return value;
 }
 
-int parse_http_header(struct ws_parser *parser)
+// parse one http header line
+static int parse_http_header(struct ws_parser *parser)
 {
-    // parser->buffer = "Header-Name: header value\r\0"
-
     printf("parse_http_header: %s\n", parser->buffer);
 
-    if (!strcmp(parser->buffer, "\r")) {
+    if (parser->buffer[0] == '\0') {
         // end of header
+        parser->state = WS_HEADER;
 
-        // send reply
-
+        // read websocket frame reader from now on
         parser->remaining = 2;
         parser->parse_fn = parse_frame_header;
         parser->read_fn = read_bytes;
@@ -101,17 +153,17 @@ int parse_http_header(struct ws_parser *parser)
     if (value == NULL)
         return -1;
 
-    if (!strcmp(key, "Sec-WebSocket-Key")) {
-        printf("found websocket key: %s\n", value);
+    if (!strcasecmp(key, "Sec-WebSocket-Key")) {
+        if (parser->key == NULL)
+            parser->key = strdup(value);
     }
 
     return 0;
 }
 
-int parse_http_get(struct ws_parser *parser)
+// parse the http GET line
+static int parse_http_get(struct ws_parser *parser)
 {
-    // parser->buffer = "GET /path HTTP/1.1\r\0"
-
     printf("parse_http_get: %s\n", parser->buffer);
 
     parser->parse_fn = parse_http_header;
@@ -120,7 +172,7 @@ int parse_http_get(struct ws_parser *parser)
 }
 
 // read a line into the buffer and then call parse_fn
-int read_line(struct ws_parser *parser, const char *data, size_t len)
+static int read_line(struct ws_parser *parser, const char *data, size_t len)
 {
     // check if \n is in data
     int pos = 0;
@@ -130,7 +182,7 @@ int read_line(struct ws_parser *parser, const char *data, size_t len)
 
     if (pos == len) {
         // no \n found, copy everything to the buffer and return
-        if (buffer_concat(parser, data, pos) == -1)
+        if (concat(parser, data, pos) == -1)
             return -1;
 
         return len;
@@ -141,7 +193,7 @@ int read_line(struct ws_parser *parser, const char *data, size_t len)
         // copy the \n char too
         pos++;
 
-        if (buffer_concat(parser, data, pos) == -1)
+        if (concat(parser, data, pos) == -1)
             return -1;
 
         // null-terminate the string, getting rid of the \n
@@ -162,13 +214,13 @@ int read_line(struct ws_parser *parser, const char *data, size_t len)
 }
 
 // read n bytes into the buffer and then call parse_fn
-int read_bytes(struct ws_parser *parser, const char *data, size_t len)
+static int read_bytes(struct ws_parser *parser, const char *data, size_t len)
 {
     if (len > parser->remaining)
         len = parser->remaining;
     parser->remaining -= len;
 
-    buffer_concat(parser, data, len);
+    concat(parser, data, len);
 
     if (parser->remaining == 0) {
         if (parser->parse_fn(parser) == -1)
@@ -181,13 +233,16 @@ int read_bytes(struct ws_parser *parser, const char *data, size_t len)
 }
 
 // read n bytes, process them in chucks as they become available
-int read_stream(struct ws_parser *parser, const char *data, size_t len)
+static int read_stream(struct ws_parser *parser, const char *data, size_t len)
 {
     if (len > parser->remaining)
         len = parser->remaining;
     parser->remaining -= len;
 
-    // send data
+    parser->state = WS_DATA;
+    parser->data = data;
+    parser->data_offset += parser->data_len;
+    parser->data_len = len;
 
     // got everything, wait for next frame header
     if (parser->remaining == 0) {
@@ -202,7 +257,21 @@ int read_stream(struct ws_parser *parser, const char *data, size_t len)
 // return the number of bytes consumed or -1 on error
 int ws_read(struct ws_parser *parser, const char *data, size_t len)
 {
-    return parser->read_fn(parser, data, len);
+    parser->state = WS_NONE;
+
+    int consumed = 0;
+
+    while (parser->state == WS_NONE && len > 0) {
+        int ret = parser->read_fn(parser, data, len);
+        if (ret == -1)
+            return -1;
+
+        consumed += ret;
+        data += ret;
+        len -= ret;
+    }
+
+    return consumed;
 }
 
 struct ws_parser *ws_new()
@@ -211,14 +280,18 @@ struct ws_parser *ws_new()
 
     parser->read_fn = read_line;
     parser->parse_fn = parse_http_get;
+
     parser->buffer = malloc(BUFFER_SIZE);
     parser->buffer_len = 0;
+
+    parser->key = NULL;
 
     return parser;
 }
 
 void ws_free(struct ws_parser *parser)
 {
+    free(parser->key);
     free(parser->buffer);
     free(parser);
 }
