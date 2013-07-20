@@ -129,7 +129,7 @@ static void compute_challenge(const char *key, char *encoded)
     struct sha1_ctxt ctx;
     sha1_init(&ctx);
     sha1_loop(&ctx, (unsigned char *)buf, strlen(buf));
-    sha1_result(&ctx, (char *)result);
+    sha1_result(&ctx, result);
 
     base64_encode(encoded, (unsigned char *)result, SHA1_RESULTLEN);
 }

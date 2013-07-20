@@ -57,7 +57,7 @@ struct sha1_ctxt {
 extern void sha1_init(struct sha1_ctxt *);
 extern void sha1_pad(struct sha1_ctxt *);
 extern void sha1_loop(struct sha1_ctxt *, const u_int8_t *, size_t);
-extern void sha1_result(struct sha1_ctxt *, caddr_t);
+extern void sha1_result(struct sha1_ctxt *, u_int8_t *);
 
 /* compatibilty with other SHA1 source codes */
 typedef struct sha1_ctxt SHA1_CTX;
