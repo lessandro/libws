@@ -23,44 +23,16 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef WS_PRIVATE_H
+#define WS_PRIVATE_H
+
 #include "ws.h"
-#include "ws_private.h"
 
-// read and parse a byte stream
-// return the number of bytes read
-int ws_read(struct ws_parser *parser, const char *data, size_t len)
-{
-    parser->result = WS_NONE;
-    return parser->read_fn(parser, data, len);
-}
+void read_line_cb(struct ws_parser *, ws_callback *);
+void read_bytes_cb(struct ws_parser *, size_t, ws_callback *);
+void read_stream_cb(struct ws_parser *, uint64_t, ws_callback *);
 
-int ws_read_all(struct ws_parser *parser, const char *data, size_t len)
-{
-    while (len > 0) {
-        int ret = ws_read(parser, data, len);
+void parse_http_get(struct ws_parser *parser);
+void parse_frame_data(struct ws_parser *);
 
-        if (parser->result == WS_HEADER && parser->header_cb)
-            parser->header_cb(parser);
-
-        if (parser->result == WS_FRAME && parser->frame_cb)
-            parser->frame_cb(parser);
-
-        data += ret;
-        len -= ret;
-    }
-
-    return 0;
-}
-
-struct ws_parser *ws_new()
-{
-    struct ws_parser *parser = calloc(1, sizeof(struct ws_parser));
-    read_line_cb(parser, parse_http_get);
-    return parser;
-}
-
-void ws_free(struct ws_parser *parser)
-{
-    free(parser->key);
-    free(parser);
-}
+#endif

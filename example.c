@@ -32,45 +32,41 @@
 
 #define PORT 8888
 
+void header_cb(struct ws_parser *parser)
+{
+    struct sev_stream *stream = parser->data;
+
+    ws_http_reply(parser);
+    sev_send(stream, parser->buffer, strlen(parser->buffer));
+}
+
+void frame_cb(struct ws_parser *parser)
+{
+    printf("got %ld bytes @ offset %lld / frame len %lld / opcode %d\n",
+        parser->chunk_len, parser->chunk_offset,
+        parser->frame_len, parser->frame_opcode);
+
+    parser->buffer[parser->chunk_len] = '\0';
+    printf("%s\n", parser->buffer);
+}
+
 void open_cb(struct sev_stream *stream)
 {
     printf("open %s:%d\n", stream->remote_address, stream->remote_port);
 
-    stream->data = ws_new();
+    struct ws_parser *parser = ws_new();
+    parser->header_cb = header_cb;
+    parser->frame_cb = frame_cb;
+
+    parser->data = stream;
+    stream->data = parser;
 }
 
 void read_cb(struct sev_stream *stream, const char *data, size_t len)
 {
-    while (len > 0) {
-        struct ws_parser *parser = stream->data;
-        int ret = ws_read(parser, data, len);
+    struct ws_parser *parser = stream->data;
 
-        if (ret == -1) {
-            printf("error\n");
-            return;
-        }
-
-        if (parser->state == WS_HEADER) {
-            // send http header
-
-            ws_http_reply(parser);
-
-            printf("sending %s\n", parser->buffer);
-            sev_send(stream, parser->buffer, strlen(parser->buffer));
-        }
-
-        if (parser->state == WS_DATA) {
-            printf("got %ld bytes @ offset %ld\n",
-                parser->data_len, parser->data_offset);
-
-            for (int i=0; i<parser->data_len; i++)
-                printf("%c", parser->data[i] ^ parser->mask[i % 4]);
-            printf("\n");
-        }
-
-        data += ret;
-        len -= ret;
-    }
+    ws_read_all(parser, data, len);
 }
 
 void close_cb(struct sev_stream *stream)

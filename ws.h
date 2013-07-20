@@ -27,38 +27,63 @@
 #define WS_H
 
 #include <stdlib.h>
+#include <stdint.h>
 
 #define WS_NONE 0
 #define WS_HEADER 1
-#define WS_DATA 2
+#define WS_FRAME 2
+
+// must be at least 130 bytes long (see ws_http_reply)
+// http header lines must fit in this buffer
+#define WS_BUFFER_SIZE 4096
+
+struct ws_parser;
+typedef void (ws_callback)(struct ws_parser *);
 
 struct ws_parser {
-    int remaining;
+    // WS_NONE / WS_HEADER / WS_FRAME
+    int result;
+
+    // parser internal state
+    uint64_t remaining;
     int (*read_fn)(struct ws_parser *, const char *, size_t);
-    int (*parse_fn)(struct ws_parser *);
+    ws_callback *parse_fn;
 
-    // holds partial headers
-    char *buffer;
-    int buffer_len;
+    union {
+        char buffer[WS_BUFFER_SIZE];
+        uint8_t header[2];
+        uint16_t len16;
+        uint64_t len64;
+    };
+    size_t buffer_len;
+    int buffer_overflow;
 
+    // callbacks
+    ws_callback *header_cb;
+    ws_callback *frame_cb;
+
+    // unused
+    void *data;
+
+    // http info
     char *key;
 
-    const char *data;
-    size_t data_len;
-    size_t data_offset;
-    unsigned long long frame_len;
-
+    // frame info
+    size_t chunk_len;
+    uint64_t chunk_offset;
+    uint64_t frame_len;
+    int frame_fin;
+    int frame_opcode;
+    int frame_mask;
     char mask[4];
-
-    int state;
 };
 
 void ws_http_reply(struct ws_parser *parser);
 
+int ws_read_all(struct ws_parser *parser, const char *data, size_t len);
 int ws_read(struct ws_parser *parser, const char *data, size_t len);
 
 struct ws_parser *ws_new();
-
 void ws_free(struct ws_parser *parser);
 
 #endif

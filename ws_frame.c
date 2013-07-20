@@ -23,44 +23,57 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <netinet/in.h>
 #include "ws.h"
 #include "ws_private.h"
 
-// read and parse a byte stream
-// return the number of bytes read
-int ws_read(struct ws_parser *parser, const char *data, size_t len)
+static void parse_frame_mask(struct ws_parser *parser)
 {
-    parser->result = WS_NONE;
-    return parser->read_fn(parser, data, len);
+    for (int i = 0; i < 4; i++)
+        parser->mask[i] = parser->frame_mask ? parser->buffer[i] : 0;
+
+    read_stream_cb(parser, parser->frame_len, parse_frame_data);
 }
 
-int ws_read_all(struct ws_parser *parser, const char *data, size_t len)
+static uint64_t ntohll(uint64_t n)
 {
-    while (len > 0) {
-        int ret = ws_read(parser, data, len);
-
-        if (parser->result == WS_HEADER && parser->header_cb)
-            parser->header_cb(parser);
-
-        if (parser->result == WS_FRAME && parser->frame_cb)
-            parser->frame_cb(parser);
-
-        data += ret;
-        len -= ret;
-    }
-
-    return 0;
+#if BYTE_ORDER == LITTLE_ENDIAN
+    n = ((n << 8) & 0xFF00FF00FF00FF00ULL) |
+        ((n >> 8) & 0x00FF00FF00FF00FFULL);
+    n = ((n << 16) & 0xFFFF0000FFFF0000ULL) |
+        ((n >> 16) & 0x0000FFFF0000FFFFULL);
+    n = (n << 32) | (n >> 32);
+#endif
+    return n;
 }
 
-struct ws_parser *ws_new()
+static void parse_frame_length(struct ws_parser *parser)
 {
-    struct ws_parser *parser = calloc(1, sizeof(struct ws_parser));
-    read_line_cb(parser, parse_http_get);
-    return parser;
+    if (parser->frame_len == 126)
+        parser->frame_len = ntohs(parser->len16);
+    else if (parser->frame_len == 127)
+        parser->frame_len = ntohll(parser->len64);
+
+    read_bytes_cb(parser, parser->frame_mask ? 4 : 0, parse_frame_mask);
 }
 
-void ws_free(struct ws_parser *parser)
+static void parse_frame_header(struct ws_parser *parser)
 {
-    free(parser->key);
-    free(parser);
+    parser->frame_fin = parser->header[0] >> 7;
+    parser->frame_opcode = parser->header[0] & 0x0f;
+    parser->frame_len = parser->header[1] & 0x7f;
+    parser->frame_mask = parser->header[1] >> 7;
+
+    int num = 0;
+    if (parser->frame_len == 126)
+        num = 2;
+    if (parser->frame_len == 127)
+        num = 8;
+
+    read_bytes_cb(parser, num, parse_frame_length);
+}
+
+void parse_frame_data(struct ws_parser *parser)
+{
+    read_bytes_cb(parser, 2, parse_frame_header);
 }

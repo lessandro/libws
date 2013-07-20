@@ -1,2 +1,2 @@
 all:
-	$(CC) -Wall -o example example.c ws.c base64.c sha1.c sev/sev.a -lev
+	$(CC) -std=c99 -g -Wall -o example *.c sev/sev.a -lev
