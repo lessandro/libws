@@ -1,5 +1,5 @@
 *.dSYM
 *.a
 *.o
-example
+example/example
 a.out
