@@ -30,6 +30,8 @@
 #include "sha1.h"
 #include "base64.h"
 
+// must be at least 130 bytes long (see ws_http_reply)
+// http header lines must fit in this buffer
 #define BUFFER_SIZE 2048
 
 static int read_bytes(struct ws_parser *parser, const char *data, size_t len);
