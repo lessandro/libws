@@ -66,7 +66,7 @@ void read_cb(struct sev_stream *stream, const char *data, size_t len)
 {
     struct ws_parser *parser = stream->data;
 
-    ws_read_all(parser, data, len);
+    ws_parse_all(parser, data, len);
 }
 
 void close_cb(struct sev_stream *stream)

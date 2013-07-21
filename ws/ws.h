@@ -80,8 +80,8 @@ struct ws_parser {
 
 void ws_http_reply(struct ws_parser *parser);
 
-int ws_read_all(struct ws_parser *parser, const char *data, size_t len);
-int ws_read(struct ws_parser *parser, const char *data, size_t len);
+int ws_parse_all(struct ws_parser *parser, const char *data, size_t len);
+int ws_parse(struct ws_parser *parser, const char *data, size_t len);
 
 struct ws_parser *ws_new();
 void ws_free(struct ws_parser *parser);

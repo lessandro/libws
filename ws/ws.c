@@ -28,16 +28,16 @@
 
 // read and parse a byte stream
 // return the number of bytes read
-int ws_read(struct ws_parser *parser, const char *data, size_t len)
+int ws_parse(struct ws_parser *parser, const char *data, size_t len)
 {
     parser->result = WS_NONE;
     return parser->read_fn(parser, data, len);
 }
 
-int ws_read_all(struct ws_parser *parser, const char *data, size_t len)
+int ws_parse_all(struct ws_parser *parser, const char *data, size_t len)
 {
     while (len > 0) {
-        int ret = ws_read(parser, data, len);
+        int ret = ws_parse(parser, data, len);
 
         if (parser->result == WS_HEADER && parser->header_cb)
             parser->header_cb(parser);
