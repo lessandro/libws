@@ -52,14 +52,14 @@ int ws_parse_all(struct ws_parser *parser, const char *data, size_t len)
     return 0;
 }
 
-struct ws_parser *ws_new()
+struct ws_parser *ws_parser_new()
 {
     struct ws_parser *parser = calloc(1, sizeof(struct ws_parser));
     read_line_cb(parser, parse_http_get);
     return parser;
 }
 
-void ws_free(struct ws_parser *parser)
+void ws_parser_free(struct ws_parser *parser)
 {
     free(parser->key);
     free(parser);

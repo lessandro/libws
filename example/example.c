@@ -54,7 +54,7 @@ void open_cb(struct sev_stream *stream)
 {
     printf("open %s:%d\n", stream->remote_address, stream->remote_port);
 
-    struct ws_parser *parser = ws_new();
+    struct ws_parser *parser = ws_parser_new();
     parser->header_cb = header_cb;
     parser->frame_cb = frame_cb;
 
@@ -72,7 +72,7 @@ void read_cb(struct sev_stream *stream, const char *data, size_t len)
 void close_cb(struct sev_stream *stream)
 {
     printf("close %s\n", stream->remote_address);
-    ws_free(stream->data);
+    ws_parser_free(stream->data);
 }
 
 int main(int argc, char *argv[])
