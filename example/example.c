@@ -32,7 +32,7 @@
 
 #define PORT 8888
 
-void header_cb(struct ws_parser *parser)
+static void header_cb(struct ws_parser *parser)
 {
     struct sev_stream *stream = parser->data;
 
@@ -40,7 +40,7 @@ void header_cb(struct ws_parser *parser)
     sev_send(stream, parser->buffer, strlen(parser->buffer));
 }
 
-void frame_cb(struct ws_parser *parser)
+static void frame_cb(struct ws_parser *parser)
 {
     printf("got %ld bytes @ offset %lld / frame len %lld / opcode %d\n",
         parser->chunk_len, parser->chunk_offset,
@@ -50,7 +50,7 @@ void frame_cb(struct ws_parser *parser)
     printf("%s\n", parser->buffer);
 }
 
-void open_cb(struct sev_stream *stream)
+static void open_cb(struct sev_stream *stream)
 {
     printf("open %s:%d\n", stream->remote_address, stream->remote_port);
 
@@ -62,14 +62,14 @@ void open_cb(struct sev_stream *stream)
     stream->data = parser;
 }
 
-void read_cb(struct sev_stream *stream, const char *data, size_t len)
+static void read_cb(struct sev_stream *stream, const char *data, size_t len)
 {
     struct ws_parser *parser = stream->data;
 
     ws_parse_all(parser, data, len);
 }
 
-void close_cb(struct sev_stream *stream)
+static void close_cb(struct sev_stream *stream)
 {
     printf("close %s\n", stream->remote_address);
     ws_parser_free(stream->data);
