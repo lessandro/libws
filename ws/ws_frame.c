@@ -27,14 +27,6 @@
 #include "ws.h"
 #include "ws_private.h"
 
-static void parse_frame_mask(struct ws_parser *parser)
-{
-    for (int i = 0; i < 4; i++)
-        parser->mask[i] = parser->frame_mask ? parser->buffer[i] : 0;
-
-    read_stream_cb(parser, parser->frame_len, parse_frame_data);
-}
-
 static uint64_t ntohll(uint64_t n)
 {
 #if BYTE_ORDER == LITTLE_ENDIAN
@@ -45,6 +37,48 @@ static uint64_t ntohll(uint64_t n)
     n = (n << 32) | (n >> 32);
 #endif
     return n;
+}
+
+static uint64_t htonll(uint64_t n)
+{
+    return ntohll(n);
+}
+
+// writes at most 10 bytes to *out
+// returns the number of bytes written
+// or -1 if len is greater than the maximum (2^63-1)
+int ws_frame_header(char *out, int type, uint64_t len)
+{
+    out[0] = type | 0x80;
+
+    if (len < 126) {
+        out[1] = len;
+        return 2;
+    }
+
+    void *p = &out[2];
+
+    if (len <= 0xFFFF) {
+        out[1] = 126;
+        *(uint16_t *)p = htons((uint16_t)len);
+        return 4;
+    }
+
+    if (len <= 0x7FFFFFFFFFFFFFFFULL) {
+        out[1] = 127;
+        *(uint64_t *)p = htonll((uint64_t)len);
+        return 10;
+    }
+
+    return -1;
+}
+
+static void parse_frame_mask(struct ws_parser *parser)
+{
+    for (int i = 0; i < 4; i++)
+        parser->mask[i] = parser->frame_mask ? parser->buffer[i] : 0;
+
+    read_stream_cb(parser, parser->frame_len, parse_frame_data);
 }
 
 static void parse_frame_length(struct ws_parser *parser)
@@ -60,8 +94,8 @@ static void parse_frame_length(struct ws_parser *parser)
 static void parse_frame_header(struct ws_parser *parser)
 {
     parser->frame_fin = parser->header[0] >> 7;
-    parser->frame_opcode = parser->header[0] & 0x0f;
-    parser->frame_len = parser->header[1] & 0x7f;
+    parser->frame_opcode = parser->header[0] & 0x0F;
+    parser->frame_len = parser->header[1] & 0x7F;
     parser->frame_mask = parser->header[1] >> 7;
 
     int num = 0;

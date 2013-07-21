@@ -33,6 +33,14 @@
 #define WS_HEADER 1
 #define WS_FRAME 2
 
+// frame types
+#define WS_CONTINUATION 0x0
+#define WS_TEXT 0x1
+#define WS_BINARY 0x2
+#define WS_CONNECTION_CLOSE 0x8
+#define WS_PING 0x9
+#define WS_PONG 0xA
+
 // must be at least 130 bytes long (see ws_http_reply)
 // http header lines must fit in this buffer
 #define WS_BUFFER_SIZE 4096
@@ -78,6 +86,7 @@ struct ws_parser {
     char mask[4];
 };
 
+int ws_frame_header(char *out, int type, uint64_t len);
 void ws_http_reply(struct ws_parser *parser);
 
 int ws_parse_all(struct ws_parser *parser, const char *data, size_t len);
