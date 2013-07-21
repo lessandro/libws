@@ -48,6 +48,12 @@ static void frame_cb(struct ws_parser *parser)
 
     parser->buffer[parser->chunk_len] = '\0';
     printf("%s\n", parser->buffer);
+
+    // send the data back to the client
+    char header[10];
+    int header_len = ws_frame_header(header, WS_TEXT, parser->chunk_len);
+    sev_send(parser->data, header, header_len);
+    sev_send(parser->data, parser->buffer, parser->chunk_len);
 }
 
 static void open_cb(struct sev_stream *stream)
@@ -64,9 +70,7 @@ static void open_cb(struct sev_stream *stream)
 
 static void read_cb(struct sev_stream *stream, const char *data, size_t len)
 {
-    struct ws_parser *parser = stream->data;
-
-    ws_parse_all(parser, data, len);
+    ws_parse_all(stream->data, data, len);
 }
 
 static void close_cb(struct sev_stream *stream)
