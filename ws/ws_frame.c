@@ -23,6 +23,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <string.h>
 #include <netinet/in.h>
 #include "ws.h"
 #include "ws_private.h"
@@ -73,41 +74,58 @@ int ws_frame_header(char *out, int type, uint64_t len)
     return -1;
 }
 
-static void parse_frame_mask(struct ws_parser *parser)
+static int parse_frame_mask(struct ws_parser *parser)
 {
     for (int i = 0; i < 4; i++)
-        parser->mask[i] = parser->frame_mask ? parser->buffer[i] : 0;
+        parser->frame.mask[i] = parser->frame.masked ? parser->buffer[i] : 0;
 
-    read_stream_cb(parser, parser->frame_len, parse_frame_data);
+    read_stream_cb(parser, parser->frame.total_len, parse_frame_data);
+
+    return 0;
 }
 
-static void parse_frame_length(struct ws_parser *parser)
+static int parse_frame_length(struct ws_parser *parser)
 {
-    if (parser->frame_len == 126)
-        parser->frame_len = ntohs(parser->len16);
-    else if (parser->frame_len == 127)
-        parser->frame_len = ntohll(parser->len64);
+    union {
+        uint8_t buffer[8];
+        uint16_t len16;
+        uint64_t len64;
+    } u;
 
-    read_bytes_cb(parser, parser->frame_mask ? 4 : 0, parse_frame_mask);
+    memcpy(u.buffer, parser->buffer, 8);
+
+    if (parser->frame.total_len == 126)
+        parser->frame.total_len = ntohs(u.len16);
+    else if (parser->frame.total_len == 127)
+        parser->frame.total_len = ntohll(u.len64);
+
+    read_bytes_cb(parser, parser->frame.masked ? 4 : 0, parse_frame_mask);
+
+    return 0;
 }
 
-static void parse_frame_header(struct ws_parser *parser)
+static int parse_frame_header(struct ws_parser *parser)
 {
-    parser->frame_fin = parser->header[0] >> 7;
-    parser->frame_opcode = parser->header[0] & 0x0F;
-    parser->frame_len = parser->header[1] & 0x7F;
-    parser->frame_mask = parser->header[1] >> 7;
+    parser->frame.fin = parser->buffer[0] >> 7;
+    parser->frame.opcode = parser->buffer[0] & 0x0F;
+    parser->frame.len = parser->buffer[1] & 0x7F;
+    parser->frame.masked = parser->buffer[1] >> 7;
 
     int num = 0;
-    if (parser->frame_len == 126)
+    if (parser->frame.total_len == 126)
         num = 2;
-    if (parser->frame_len == 127)
+    if (parser->frame.total_len == 127)
         num = 8;
 
     read_bytes_cb(parser, num, parse_frame_length);
+
+    return 0;
 }
 
-void parse_frame_data(struct ws_parser *parser)
+int parse_frame_data(struct ws_parser *parser)
 {
+    parser->frame.data = parser->buffer;
     read_bytes_cb(parser, 2, parse_frame_header);
+
+    return 0;
 }

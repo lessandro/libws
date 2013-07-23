@@ -38,12 +38,20 @@ int ws_parse_all(struct ws_parser *parser, const char *data, size_t len)
 {
     while (len > 0) {
         int ret = ws_parse(parser, data, len);
+        if (ret == -1)
+            return -1;
+
+        if (parser->result == WS_GET && parser->get_cb)
+            if (parser->get_cb(parser, parser->value) == -1)
+                return -1;
 
         if (parser->result == WS_HEADER && parser->header_cb)
-            parser->header_cb(parser);
+            if (parser->header_cb(parser, parser->key, parser->value) == -1)
+                return -1;
 
         if (parser->result == WS_FRAME && parser->frame_cb)
-            parser->frame_cb(parser);
+            if (parser->frame_cb(parser, &parser->frame) == -1)
+                return -1;
 
         data += ret;
         len -= ret;
@@ -61,6 +69,5 @@ struct ws_parser *ws_parser_new()
 
 void ws_parser_free(struct ws_parser *parser)
 {
-    free(parser->key);
     free(parser);
 }

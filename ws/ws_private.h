@@ -32,7 +32,7 @@ void read_line_cb(struct ws_parser *, ws_callback *);
 void read_bytes_cb(struct ws_parser *, size_t, ws_callback *);
 void read_stream_cb(struct ws_parser *, uint64_t, ws_callback *);
 
-void parse_http_get(struct ws_parser *parser);
-void parse_frame_data(struct ws_parser *);
+int parse_http_get(struct ws_parser *parser);
+int parse_frame_data(struct ws_parser *);
 
 #endif

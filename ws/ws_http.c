@@ -56,25 +56,35 @@ static const char *http_reply =
     "Connection: Upgrade\r\n"
     "Sec-WebSocket-Accept: ";
 
-void ws_http_reply(struct ws_parser *parser)
+void ws_write_http_handshake(char *out, char *key)
 {
     char encoded[base64_encode_len(SHA1_RESULTLEN)];
 
-    compute_challenge(parser->key, encoded);
+    compute_challenge(key, encoded);
 
-    strcpy((char *)parser->buffer, http_reply);
-    strcat((char *)parser->buffer, encoded);
-    strcat((char *)parser->buffer, "\r\n\r\n");
+    strcpy(out, http_reply);
+    strcat(out, encoded);
+    strcat(out, "\r\n\r\n");
+}
+
+static const char *http_error =
+    "HTTP/1.1 400 Bad Request\r\n"
+    "Sec-WebSocket-Version: 13\r\n"
+    "\r\n";
+
+void ws_write_http_error(char *out)
+{
+    strcpy(out, http_error);
 }
 
 // split an http header line ("key: value")
 // return a pointer to the value
 // zero-length keys and values are allowed
-static char *split_header(char *line)
+static char *split_header(char *line, char delim)
 {
-    char *value = strchr(line, ':');
+    char *value = strchr(line, delim);
     if (value == NULL)
-        return line + strlen(line);
+        return NULL;
 
     // null-terminate key
     *value++ = '\0';
@@ -87,34 +97,58 @@ static char *split_header(char *line)
 }
 
 // parse one http header line
-static void parse_http_header(struct ws_parser *parser)
+static int parse_http_header(struct ws_parser *parser)
 {
     printf("parse_http_header: %s\n", parser->buffer);
 
     if (parser->buffer[0] == '\0') {
         // end of header
         parser->result = WS_HEADER;
+        parser->key = NULL;
+        parser->value = NULL;
 
         // read websocket frame reader from now on
         parse_frame_data(parser);
-        return;
+        return 0;
     }
 
-    char *key = (char *)parser->buffer;
-    char *value = split_header(key);
+    parser->key = (char *)parser->buffer;
+    parser->value = split_header(parser->key, ':');
 
-    if (!strcasecmp(key, "Sec-WebSocket-Key")) {
-        if (parser->key == NULL)
-            parser->key = strdup(value);
+    if (parser->value == NULL) {
+        parser->errno = WS_INVALID_HTTP_HEADER;
+        return -1;
     }
 
     read_line_cb(parser, parse_http_header);
+
+    return 0;
 }
 
 // parse the http GET line
-void parse_http_get(struct ws_parser *parser)
+int parse_http_get(struct ws_parser *parser)
 {
     printf("parse_http_get: %s\n", parser->buffer);
 
+    char *method = parser->buffer;
+    char *path = split_header(method, ' ');
+
+    if (path == NULL || strcmp(method, "GET") != 0) {
+        parser->errno = WS_INVALID_HTTP_GET;
+        return -1;
+    }
+
+    char *version = split_header(path, ' ');
+
+    if (version == NULL || strcmp(version, "HTTP/1.1") != 0) {
+        parser->errno = WS_INVALID_HTTP_GET;
+        return -1;
+    }
+
+    parser->result = WS_GET;
+    parser->value = path;
+
     read_line_cb(parser, parse_http_header);
+
+    return 0;
 }

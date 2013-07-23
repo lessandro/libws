@@ -26,19 +26,21 @@
 #include <string.h>
 #include "ws.h"
 
-static void concat(struct ws_parser *parser, const char *data, size_t len)
+static int concat(struct ws_parser *parser, const char *data, size_t len)
 {
     int available = WS_BUFFER_SIZE - parser->buffer_len;
 
     if (len > available) {
-        parser->buffer_overflow = 1;
-        len = available;
+        parser->errno = WS_BUFFER_OVERFLOW;
+        return -1;
     }
 
     if (len > 0) {
         memcpy(parser->buffer + parser->buffer_len, data, len);
         parser->buffer_len += len;
     }
+
+    return 0;
 }
 
 // read a line into the buffer and then call parse_fn
@@ -53,7 +55,8 @@ static int read_line(struct ws_parser *parser, const char *data, size_t len)
     int has_nl = pos < len;
     pos += has_nl;
 
-    concat(parser, data, pos);
+    if (concat(parser, data, pos) == -1)
+        return -1;
 
     if (has_nl) {
         // null-terminate the string, getting rid of the \n
@@ -64,7 +67,8 @@ static int read_line(struct ws_parser *parser, const char *data, size_t len)
             if (parser->buffer[parser->buffer_len - 2] == '\r')
                 parser->buffer[parser->buffer_len - 2] = '\0';
 
-        parser->parse_fn(parser);
+        if (parser->parse_fn(parser) == -1)
+            return -1;
     }
 
     return pos;
@@ -76,12 +80,15 @@ static int read_bytes(struct ws_parser *parser, const char *data, size_t len)
     if (len > parser->remaining)
         len = parser->remaining;
 
-    memcpy(parser->buffer + parser->buffer_len, data, len);
-    parser->buffer_len += len;
-    parser->remaining -= len;
+    if (len > 0) {
+        memcpy(parser->buffer + parser->buffer_len, data, len);
+        parser->buffer_len += len;
+        parser->remaining -= len;
+    }
 
     if (parser->remaining == 0)
-        parser->parse_fn(parser);
+        if (parser->parse_fn(parser) == -1)
+            return -1;
 
     return len;
 }
@@ -96,11 +103,11 @@ static int read_stream(struct ws_parser *parser, const char *data, size_t len)
         len = WS_BUFFER_SIZE - 1;
 
     parser->result = WS_FRAME;
-    parser->chunk_offset += parser->buffer_len;
-    parser->chunk_len = len;
+    parser->frame.offset += parser->buffer_len;
+    parser->frame.len = len;
 
     for (int i = 0; i < len; i++)
-        parser->buffer[i] = data[i] ^ parser->mask[i % 4];
+        parser->frame.data[i] = data[i] ^ parser->frame.mask[i % 4];
 
     parser->remaining -= len;
 
@@ -128,7 +135,6 @@ void read_bytes_cb(struct ws_parser *parser, size_t len, ws_callback *fn)
 
 void read_line_cb(struct ws_parser *parser, ws_callback *fn)
 {
-    parser->buffer_overflow = 0;
     parser->buffer_len = 0;
     parser->read_fn = read_line;
     parser->parse_fn = fn;
