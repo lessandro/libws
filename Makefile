@@ -1,7 +1,7 @@
 all:
 	$(MAKE) -C ws
-
-example:
 	$(MAKE) -C example
 
-.PHONY: example
+clean:
+	$(MAKE) -C ws clean
+	$(MAKE) -C example clean
