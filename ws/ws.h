@@ -30,9 +30,8 @@
 #include <stdint.h>
 
 #define WS_NONE 0
-#define WS_GET 1
-#define WS_HEADER 2
-#define WS_FRAME 3
+#define WS_HTTP_HEADER 1
+#define WS_FRAME_CHUNK 2
 
 // frame types
 #define WS_CONTINUATION 0x0
@@ -43,15 +42,15 @@
 #define WS_PONG 0xA
 
 // error types
+#define WS_ERROR -1
 #define WS_BUFFER_OVERFLOW 1
-#define WS_INVALID_HTTP_GET 2
-#define WS_INVALID_HTTP_HEADER 3
+#define WS_BAD_REQUEST 2
 
 // http header lines must fit in this buffer
 #define WS_BUFFER_SIZE 4096
 
-#define WS_MAX_FRAME_HEADER_SIZE 10
-#define WS_HTTP_HANDSHAKE_SIZE 130
+#define WS_FRAME_HEADER_SIZE 10
+#define WS_HTTP_RESPONSE_SIZE 130
 
 struct ws_parser;
 typedef int (ws_callback)(struct ws_parser*);
@@ -61,36 +60,49 @@ struct ws_frame {
     int opcode;
     int masked;
     char mask[4];
-    uint64_t total_len;
+    uint64_t len;
 
-    char *data;
-    size_t len;
-    uint64_t offset;
+    char *chunk_data;
+    size_t chunk_len;
+    uint64_t chunk_offset;
+};
+
+struct ws_header {
+    char *resource;
+    char *websocket_key;
+    char **headers;
+    char **values;
 };
 
 struct ws_parser {
-    // WS_NONE / WS_HEADER / WS_FRAME
     int result;
-    char *key;
-    char *value;
     int errno;
 
     // parser internal state
     uint64_t remaining;
-    int (*read_fn)(struct ws_parser *, const char *, size_t);
-    int (*parse_fn)(struct ws_parser *);
+    int (*read_fn)(struct ws_parser *, char *, size_t);
+    void (*parse_fn)(struct ws_parser *);
 
+    // big buffer for http headers
     char buffer[WS_BUFFER_SIZE];
     size_t buffer_len;
 
+    // small buffer for frame headers
+    union {
+        uint8_t bytes[8];
+        uint16_t len16;
+        uint64_t len64;
+    } u;
+    size_t bytes_len;
+
     // callbacks
-    int (*get_cb)(struct ws_parser *, char *path);
-    int (*header_cb)(struct ws_parser *, char *key, char *value);
-    int (*frame_cb)(struct ws_parser *, struct ws_frame *frame);
+    int (*header_cb)(struct ws_header *header, void *data);
+    int (*frame_cb)(struct ws_frame *frame, void *data);
 
     // private data for the callbacks
     void *data;
 
+    struct ws_header header;
     struct ws_frame frame;
 };
 
@@ -98,10 +110,13 @@ int ws_write_frame_header(char *out, int type, uint64_t len);
 void ws_write_http_handshake(char *out, char *key);
 void ws_write_http_error(char *out);
 
-int ws_parse_all(struct ws_parser *parser, const char *data, size_t len);
-int ws_parse(struct ws_parser *parser, const char *data, size_t len);
+int ws_parse_all(struct ws_parser *parser, char *data, size_t len);
+int ws_parse(struct ws_parser *parser, char *data, size_t len);
 
-struct ws_parser *ws_parser_new();
-void ws_parser_free(struct ws_parser *parser);
+void ws_parser_init(struct ws_parser *);
+void ws_parser_free(struct ws_parser *);
+
+int ws_read_http_header(struct ws_parser *parser, char *data, size_t len);
+void ws_read_next_frame(struct ws_parser *);
 
 #endif

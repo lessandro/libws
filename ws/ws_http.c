@@ -23,10 +23,8 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <stdio.h>
 #include <string.h>
 #include "ws.h"
-#include "ws_private.h"
 #include "sha1.h"
 #include "base64.h"
 
@@ -77,78 +75,120 @@ void ws_write_http_error(char *out)
     strcpy(out, http_error);
 }
 
-// split an http header line ("key: value")
-// return a pointer to the value
-// zero-length keys and values are allowed
-static char *split_header(char *line, char delim)
+static char *split(char *line, const char *delim)
 {
-    char *value = strchr(line, delim);
-    if (value == NULL)
+    if (!line)
         return NULL;
 
-    // null-terminate key
-    *value++ = '\0';
+    char *str = strstr(line, delim);
+    if (!str)
+        return NULL;
 
-    // remove leading spaces
-    while (*value == ' ')
-        value++;
+    // remove delimiter
+    while (*delim++)
+        *str++ = '\0';
 
-    return value;
+    // remove leading whitespace
+    while (*str == ' ')
+        str++;
+
+    return str;
 }
 
-// parse one http header line
-static int parse_http_header(struct ws_parser *parser)
+int parse_http_header(struct ws_parser *parser)
 {
-    printf("parse_http_header: %s\n", parser->buffer);
-
-    if (parser->buffer[0] == '\0') {
-        // end of header
-        parser->result = WS_HEADER;
-        parser->key = NULL;
-        parser->value = NULL;
-
-        // read websocket frame reader from now on
-        parse_frame_data(parser);
-        return 0;
-    }
-
-    parser->key = (char *)parser->buffer;
-    parser->value = split_header(parser->key, ':');
-
-    if (parser->value == NULL) {
-        parser->errno = WS_INVALID_HTTP_HEADER;
-        return -1;
-    }
-
-    read_line_cb(parser, parse_http_header);
-
-    return 0;
-}
-
-// parse the http GET line
-int parse_http_get(struct ws_parser *parser)
-{
-    printf("parse_http_get: %s\n", parser->buffer);
+    char *next = split(parser->buffer, "\r\n");
 
     char *method = parser->buffer;
-    char *path = split_header(method, ' ');
+    char *resource = split(method, " ");
+    char *http = split(resource, " ");
 
-    if (path == NULL || strcmp(method, "GET") != 0) {
-        parser->errno = WS_INVALID_HTTP_GET;
+    if (!http || strcmp(method, "GET") || strcmp(http, "HTTP/1.1"))
         return -1;
+
+    parser->header.resource = resource;
+
+    int num_headers = 0;
+    for (char *p = next; *p; p++)
+        num_headers += (*p == '\n');
+
+    parser->header.headers = calloc(num_headers, sizeof(char *));
+    parser->header.values = calloc(num_headers, sizeof(char *));
+    num_headers = 0;
+
+    int upgrade = 0;
+    int connection = 0;
+    int version = 0;
+
+    while (strncmp(next, "\r\n", 2)) {
+        char *header = next;
+        char *value = split(header, ":");
+        next = split(value, "\r\n");
+
+        if (!next)
+            return -1;
+
+        parser->header.headers[num_headers] = header;
+        parser->header.values[num_headers++] = value;
+
+        if (!strcasecmp(header, "Upgrade")) {
+            if (strcasecmp(value, "websocket"))
+                return -1;
+            upgrade = 1;
+        }
+        else if (!strcasecmp(header, "Connection")) {
+            if (strcasecmp(value, "Upgrade"))
+                return -1;
+            connection = 1;
+        }
+        else if (!strcasecmp(header, "Sec-WebSocket-Version")) {
+            if (strcasecmp(value, "13"))
+                return -1;
+            version = 1;
+        }
+        else if (!strcasecmp(header, "Sec-WebSocket-Key")) {
+            parser->header.websocket_key = value;
+            continue;
+        }
     }
 
-    char *version = split_header(path, ' ');
-
-    if (version == NULL || strcmp(version, "HTTP/1.1") != 0) {
-        parser->errno = WS_INVALID_HTTP_GET;
+    if (!upgrade || !connection || !version || !parser->header.websocket_key)
         return -1;
-    }
 
-    parser->result = WS_GET;
-    parser->value = path;
-
-    read_line_cb(parser, parse_http_header);
+    parser->result = WS_HTTP_HEADER;
+    ws_read_next_frame(parser);
 
     return 0;
+}
+
+// read the http header into the buffer and then call parse_http_header
+int ws_read_http_header(struct ws_parser *parser, char *data, size_t len)
+{
+    int pos = 0;
+
+    for (; pos < len; pos++) {
+        if (parser->buffer_len == WS_BUFFER_SIZE - 1) {
+            parser->errno = WS_BUFFER_OVERFLOW;
+            return -1;
+        }
+
+        parser->buffer[parser->buffer_len++] = data[pos];
+
+        if (parser->buffer_len < 4)
+            continue;
+
+        char *p = parser->buffer + parser->buffer_len - 4;
+        if (strncmp(p, "\r\n\r\n", 4) == 0) {
+            parser->buffer[parser->buffer_len] = '\0';
+
+            if (parse_http_header(parser) == -1) {
+                parser->errno = WS_BAD_REQUEST;
+                return -1;
+            }
+
+            break;
+        }
+    }
+
+    return pos + 1;
 }

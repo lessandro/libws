@@ -23,34 +23,30 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <string.h>
 #include "ws.h"
-#include "ws_private.h"
 
 // read and parse a byte stream
 // return the number of bytes read
-int ws_parse(struct ws_parser *parser, const char *data, size_t len)
+int ws_parse(struct ws_parser *parser, char *data, size_t len)
 {
     parser->result = WS_NONE;
     return parser->read_fn(parser, data, len);
 }
 
-int ws_parse_all(struct ws_parser *parser, const char *data, size_t len)
+int ws_parse_all(struct ws_parser *parser, char *data, size_t len)
 {
     while (len > 0) {
         int ret = ws_parse(parser, data, len);
         if (ret == -1)
             return -1;
 
-        if (parser->result == WS_GET && parser->get_cb)
-            if (parser->get_cb(parser, parser->value) == -1)
+        if (parser->result == WS_HTTP_HEADER && parser->header_cb)
+            if (parser->header_cb(&parser->header, parser->data) == -1)
                 return -1;
 
-        if (parser->result == WS_HEADER && parser->header_cb)
-            if (parser->header_cb(parser, parser->key, parser->value) == -1)
-                return -1;
-
-        if (parser->result == WS_FRAME && parser->frame_cb)
-            if (parser->frame_cb(parser, &parser->frame) == -1)
+        if (parser->result == WS_FRAME_CHUNK && parser->frame_cb)
+            if (parser->frame_cb(&parser->frame, parser->data) == -1)
                 return -1;
 
         data += ret;
@@ -60,14 +56,17 @@ int ws_parse_all(struct ws_parser *parser, const char *data, size_t len)
     return 0;
 }
 
-struct ws_parser *ws_parser_new()
+void ws_parser_init(struct ws_parser *parser)
 {
-    struct ws_parser *parser = calloc(1, sizeof(struct ws_parser));
-    read_line_cb(parser, parse_http_get);
-    return parser;
+    memset(parser, 0, sizeof(struct ws_parser));
+    parser->read_fn = ws_read_http_header;
 }
 
 void ws_parser_free(struct ws_parser *parser)
 {
-    free(parser);
+    free(parser->header.headers);
+    parser->header.headers = NULL;
+
+    free(parser->header.values);
+    parser->header.values = NULL;
 }
