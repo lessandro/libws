@@ -24,6 +24,7 @@
  */
 
 #include <string.h>
+#include <strings.h>
 #include "ws.h"
 #include "sha1.h"
 #include "base64.h"
@@ -192,3 +193,4 @@ int ws_read_http_header(struct ws_parser *parser, char *data, size_t len)
 
     return pos + 1;
 }
+

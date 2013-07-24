@@ -52,7 +52,7 @@ static int header_cb(struct ws_header *header, void *data)
 
 static int frame_cb(struct ws_frame *frame, void *data)
 {
-    printf("got %ld bytes @ offset %lld / frame len %lld / opcode %d\n",
+    printf("got %zu bytes @ offset %llu / frame len %llu / opcode %d\n",
         frame->chunk_len, frame->chunk_offset,
         frame->len, frame->opcode);
 
