@@ -32,35 +32,48 @@
 
 #define PORT 8888
 
-static void header_cb(struct ws_parser *parser)
+static void send_error(struct sev_stream *stream)
 {
-    struct sev_stream *stream = parser->data;
-
-    ws_http_reply(parser);
-    sev_send(stream, parser->buffer, strlen(parser->buffer));
+    char buffer[WS_HTTP_RESPONSE_SIZE];
+    ws_write_http_error(buffer);
+    sev_send(stream, buffer, strlen(buffer));
 }
 
-static void frame_cb(struct ws_parser *parser)
+static int header_cb(struct ws_header *header, void *data)
+{
+    printf("resource: %s\n", header->resource);
+
+    char buffer[WS_HTTP_RESPONSE_SIZE];
+    ws_write_http_handshake(buffer, header->websocket_key);
+    sev_send(data, buffer, strlen(buffer));
+
+    return 0;
+}
+
+static int frame_cb(struct ws_frame *frame, void *data)
 {
     printf("got %ld bytes @ offset %lld / frame len %lld / opcode %d\n",
-        parser->chunk_len, parser->chunk_offset,
-        parser->frame_len, parser->frame_opcode);
+        frame->chunk_len, frame->chunk_offset,
+        frame->len, frame->opcode);
 
-    parser->buffer[parser->chunk_len] = '\0';
-    printf("%s\n", parser->buffer);
+    frame->chunk_data[frame->chunk_len] = '\0';
+    printf("%s\n", frame->chunk_data);
 
     // send the data back to the client
     char header[10];
-    int header_len = ws_frame_header(header, WS_TEXT, parser->chunk_len);
-    sev_send(parser->data, header, header_len);
-    sev_send(parser->data, parser->buffer, parser->chunk_len);
+    int header_len = ws_write_frame_header(header, WS_TEXT, frame->chunk_len);
+    sev_send(data, header, header_len);
+    sev_send(data, frame->chunk_data, frame->chunk_len);
+
+    return 0;
 }
 
 static void open_cb(struct sev_stream *stream)
 {
     printf("open %s:%d\n", stream->remote_address, stream->remote_port);
 
-    struct ws_parser *parser = ws_parser_new();
+    struct ws_parser *parser = malloc(sizeof(struct ws_parser));
+    ws_parser_init(parser);
     parser->header_cb = header_cb;
     parser->frame_cb = frame_cb;
 
@@ -70,13 +83,16 @@ static void open_cb(struct sev_stream *stream)
 
 static void read_cb(struct sev_stream *stream, const char *data, size_t len)
 {
-    ws_parse_all(stream->data, data, len);
+    // cast the const away
+    if (ws_parse_all(stream->data, (char *)data, len) == -1)
+        send_error(stream);
 }
 
 static void close_cb(struct sev_stream *stream)
 {
     printf("close %s\n", stream->remote_address);
     ws_parser_free(stream->data);
+    free(stream->data);
 }
 
 int main(int argc, char *argv[])
