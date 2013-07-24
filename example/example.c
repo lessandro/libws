@@ -81,10 +81,9 @@ static void open_cb(struct sev_stream *stream)
     stream->data = parser;
 }
 
-static void read_cb(struct sev_stream *stream, const char *data, size_t len)
+static void read_cb(struct sev_stream *stream, char *data, size_t len)
 {
-    // cast the const away
-    if (ws_parse_all(stream->data, (char *)data, len) == -1)
+    if (ws_parse_all(stream->data, data, len) == -1)
         send_error(stream);
 }
 
