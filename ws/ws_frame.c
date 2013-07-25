@@ -25,6 +25,15 @@
 
 #include <string.h>
 #include <netinet/in.h>
+
+#ifdef __linux
+# include <endian.h>
+# ifndef BYTE_ORDER
+#  define BYTE_ORDER __BYTE_ORDER
+#  define LITTLE_ENDIAN __LITTLE_ENDIAN
+# endif
+#endif
+
 #include "ws.h"
 
 static uint64_t ntohll(uint64_t n)

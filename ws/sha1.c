@@ -39,6 +39,15 @@
 #include <sys/time.h>
 #include <strings.h>
 
+#ifdef __linux
+# include <endian.h>
+# ifndef BYTE_ORDER
+#  define BYTE_ORDER __BYTE_ORDER
+#  define BIG_ENDIAN __BIG_ENDIAN
+#  define LITTLE_ENDIAN __LITTLE_ENDIAN
+# endif
+#endif
+
 #include "sha1.h"
 
 /* sanity check */
