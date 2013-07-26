@@ -113,8 +113,8 @@ int parse_http_header(struct ws_parser *parser)
     for (char *p = next; *p; p++)
         num_headers += (*p == '\n');
 
-    parser->header.headers = calloc(num_headers, sizeof(char *));
-    parser->header.values = calloc(num_headers, sizeof(char *));
+    parser->header.headers = calloc(num_headers + 1, sizeof(char *));
+    parser->header.values = calloc(num_headers + 1, sizeof(char *));
     num_headers = 0;
 
     int upgrade = 0;
@@ -193,4 +193,3 @@ int ws_read_http_header(struct ws_parser *parser, char *data, size_t len)
 
     return pos + 1;
 }
-
