@@ -28,7 +28,7 @@
 #include <string.h>
 #include <ev.h>
 #include "sev/sev.h"
-#include "../ws/ws.h"
+#include "../ws.h"
 
 #define PORT 8888
 

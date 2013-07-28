@@ -1,7 +1,14 @@
-all:
-	$(MAKE) -C ws
+all: example static
+
+static:
+	$(CC) -std=c99 -Wall -c *.c
+	ar rcs libws.a *.o
+
+example:
 	$(MAKE) -C example
 
 clean:
-	$(MAKE) -C ws clean
+	rm -rf *.a *.o
 	$(MAKE) -C example clean
+
+.PHONY: all static example clean
